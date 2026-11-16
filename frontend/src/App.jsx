@@ -13,7 +13,9 @@ function App() {
   const bottomRef = useRef(null)
   const requestRef = useRef(null)
 
-  useEffect(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }), [messages])
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [messages])
 
   async function submit(value = draft) {
     const message = value.trim()
