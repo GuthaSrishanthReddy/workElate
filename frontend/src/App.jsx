@@ -11,7 +11,7 @@ function App() {
   const [activeJob, setActiveJob] = useState(null)
   const [copied, setCopied] = useState(false)
   const bottomRef = useRef(null)
-  const sourceRef = useRef(null)
+  const requestRef = useRef(null)
 
   useEffect(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }), [messages])
 
@@ -22,42 +22,61 @@ function App() {
     const assistantMessage = { id: crypto.randomUUID(), role: 'assistant', events: [], loading: true }
     setMessages(prev => [...prev, userMessage, assistantMessage])
     setDraft(''); setBusy(true)
+    const controller = new AbortController()
+    requestRef.current = controller
     try {
-      const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message }) })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.detail || 'The request could not be started.')
-      if (!data.job_id) {
-        setMessages(prev => prev.map(item => item.id === assistantMessage.id ? { ...item, text: data.reply, planner: data.planner, loading: false } : item))
-        setBusy(false); return
+      const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' }, body: JSON.stringify({ message }), signal: controller.signal })
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        throw new Error(error.detail || 'The request could not be started.')
       }
-      setActiveJob(data.job_id)
-      sourceRef.current?.close()
-      const source = new EventSource(`/api/jobs/${data.job_id}/events`)
-      sourceRef.current = source
-      source.onmessage = event => {
-        const parsed = JSON.parse(event.data)
+      if (!response.body) throw new Error('This browser could not open the live crawl stream.')
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      const handleFrame = frame => {
+        const line = frame.split('\n').find(value => value.startsWith('data: '))
+        if (!line) return
+        const parsed = JSON.parse(line.slice(6))
+        if (parsed.event === 'task') setActiveJob(parsed.job_id)
+        if (parsed.event === 'reply') {
+          setMessages(prev => prev.map(item => item.id === assistantMessage.id ? { ...item, text: parsed.text, planner: parsed.planner, loading: false } : item))
+          return
+        }
+        if (parsed.event === 'planning' || parsed.event === 'complete') return
         setMessages(prev => prev.map(item => item.id === assistantMessage.id ? {
           ...item, loading: parsed.event === 'result' ? false : item.loading,
           result: parsed.event === 'result' ? parsed.result : item.result,
           events: [...item.events, parsed],
         } : item))
-        if (parsed.event === 'execution_complete') {
-          source.close(); setBusy(false); setActiveJob(null); sourceRef.current = null
-        }
       }
-      source.addEventListener('complete', () => { source.close(); setBusy(false); setActiveJob(null); sourceRef.current = null })
-      source.onerror = () => {
-        if (source.readyState === EventSource.CLOSED) { setBusy(false); setActiveJob(null) }
+      while (true) {
+        const { value, done } = await reader.read()
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done }).replaceAll('\r\n', '\n')
+        const frames = buffer.split('\n\n')
+        buffer = frames.pop() || ''
+        frames.forEach(handleFrame)
+        if (done) break
       }
     } catch (error) {
-      setMessages(prev => prev.map(item => item.id === assistantMessage.id ? { ...item, text: error.message, loading: false, error: true } : item))
+      if (error.name !== 'AbortError') {
+        setMessages(prev => prev.map(item => item.id === assistantMessage.id ? { ...item, text: error.message, loading: false, error: true } : item))
+      }
+    } finally {
+      requestRef.current = null
       setBusy(false)
+      setActiveJob(null)
     }
   }
 
   async function cancel() {
-    if (!activeJob) return
-    try { await fetch(`/api/jobs/${activeJob}/cancel`, { method: 'POST' }) } catch {}
+    if (!activeJob) { requestRef.current?.abort(); return }
+    try {
+      const response = await fetch(`/api/jobs/${activeJob}/cancel`, { method: 'POST' })
+      if (!response.ok) throw new Error('Cancel could not reach the running crawl. Check the Upstash settings.')
+    } catch (error) {
+      setMessages(prev => prev.map(item => item.role === 'assistant' && item.loading ? { ...item, text: error.message, error: true } : item))
+    }
   }
 
   function copyJSON(result) {
@@ -72,7 +91,7 @@ function App() {
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand-lockup"><div className="brand-mark"><Globe2 size={18}/></div><span>fieldnotes<span className="brand-dot">.</span></span><button className="icon-button sidebar-toggle" title="Collapse sidebar"><PanelLeft size={16}/></button></div>
-      <button className="new-chat" onClick={() => { if (activeJob) cancel(); setMessages([]); setBusy(false); setActiveJob(null); sourceRef.current?.close() }}><Plus size={16}/> New research</button>
+      <button className="new-chat" onClick={() => { cancel(); setMessages([]); setBusy(false); setActiveJob(null) }}><Plus size={16}/> New research</button>
       <div className="sidebar-section-label">WORKSPACE</div>
       <div className="workspace-card"><div className="workspace-icon"><Sparkles size={15}/></div><div><strong>BuildSprint</strong><span>Round 2 · Site research</span></div><ChevronDown size={15} className="workspace-chevron"/></div>
       <div className="sidebar-section-label recent-label">RECENT</div>

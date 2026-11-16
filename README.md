@@ -33,6 +33,12 @@ Open the Vite URL shown in the terminal. The Vite dev server proxies `/api` to F
 
 For a single-process build, run `npm run build` in `frontend`, then start FastAPI from the repository root. FastAPI serves `frontend/dist` when present.
 
+## Deploy to Vercel
+
+The FastAPI entrypoint is configured in `pyproject.toml`. Use the repository root as the Vercel Root Directory, select the FastAPI preset, and build the frontend with `cd frontend && npm ci && npm run build`. Leave the output directory unset; FastAPI serves the built files.
+
+Chat runs the crawl inside one streamed request so its process and live events stay within the same Vercel Function invocation. Vercel deployments also need an Upstash Redis database for cancel signals that cross function instances. Add `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` in Vercel Project Settings → Environment Variables. Without these values, crawl requests are rejected on Vercel rather than silently disabling cancellation. Local development does not require Redis.
+
 ## LLM setup
 
 Copy `.env.example` to `.env` and set `LLM_PROVIDER` to `openai`, `anthropic`, or `gemini` with the matching key. Models can be overridden with `LLM_MODEL`. The planner only returns `TaskSpec`; it cannot construct or execute commands. The summary request has no tools and its cited URLs are checked against the crawl result. If provider configuration or a call is unavailable, the UI and result identify the regex/extractive fallback.

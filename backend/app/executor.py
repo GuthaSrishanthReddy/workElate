@@ -74,7 +74,7 @@ async def _kill_process(proc: asyncio.subprocess.Process) -> None:
             await proc.wait()
 
 
-async def run_job(job: JobState, task: AcceptedTask) -> None:
+async def run_job(job: JobState, task: AcceptedTask, cancel_check=None) -> None:
     with tempfile.TemporaryDirectory(prefix=f"sitecrawl-{job.id}-") as temp_dir:
         job.temp_dir = temp_dir
         home = Path(temp_dir) / "home"; home.mkdir()
@@ -93,9 +93,21 @@ async def run_job(job: JobState, task: AcceptedTask) -> None:
             if job.cancelled:
                 await _kill_process(job.process)
                 killed = "cancelled"
+            async def monitor_cancel() -> None:
+                while job.process and job.process.returncode is None:
+                    try:
+                        external_cancel = await cancel_check(job.id) if cancel_check else False
+                    except Exception as exc:
+                        job.stderr_tail.append(f"Cancellation check unavailable: {exc}")
+                        external_cancel = False
+                    if job.cancelled or external_cancel:
+                        job.cancelled = True
+                        await _kill_process(job.process)
+                        return
+                    await asyncio.sleep(0.75)
             try:
                 await asyncio.wait_for(asyncio.gather(_pump_stdout(job.process.stdout, job),
-                                                      _pump_stderr(job.process.stderr, job), job.process.wait()), timeout=70)
+                                                      _pump_stderr(job.process.stderr, job), job.process.wait(), monitor_cancel()), timeout=70)
             except asyncio.TimeoutError:
                 killed = "timeout"; job.cancelled = False
                 await _kill_process(job.process)
