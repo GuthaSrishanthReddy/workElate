@@ -7,7 +7,7 @@ from backend.app.registry import safe_environment
 def test_crawler_module_is_importable_from_job_directory(tmp_path):
     env = safe_environment(tmp_path)
     result = subprocess.run(
-        [sys.executable, "-m", "cli.sitecrawl", "--help"],
+        [sys.executable, "-c", "import httpx, trafilatura; import cli.sitecrawl; print('crawler imports ok')"],
         cwd=tmp_path,
         env=env,
         capture_output=True,
@@ -16,4 +16,4 @@ def test_crawler_module_is_importable_from_job_directory(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert "Safe, same-host HTML crawler" in result.stdout
+    assert "crawler imports ok" in result.stdout

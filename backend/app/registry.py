@@ -16,6 +16,7 @@ def build_argv(task: AcceptedTask, result_path: Path) -> list[str]:
 def safe_environment(job_home: Path) -> dict[str, str]:
     allowed = {key: os.environ[key] for key in ("PATH", "LANG", "SYSTEMROOT", "WINDIR", "PATHEXT") if key in os.environ}
     package_root = Path(__file__).resolve().parents[2]
+    python_paths = [str(package_root), *(entry for entry in sys.path if entry)]
     allowed.update({"HOME": str(job_home), "USERPROFILE": str(job_home), "PYTHONIOENCODING": "utf-8",
-                    "PYTHONUNBUFFERED": "1", "PYTHONPATH": str(package_root)})
+                    "PYTHONUNBUFFERED": "1", "PYTHONPATH": os.pathsep.join(dict.fromkeys(python_paths))})
     return allowed
