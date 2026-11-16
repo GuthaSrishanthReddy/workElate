@@ -186,6 +186,14 @@ async def index():
     return {"message": "Frontend is not built. Run npm install && npm run dev in frontend/."}
 
 
+@app.get("/favicon.svg", include_in_schema=False)
+async def favicon():
+    icon = Path(__file__).resolve().parents[2] / "frontend" / "dist" / "favicon.svg"
+    if icon.exists():
+        return FileResponse(icon, media_type="image/svg+xml")
+    raise HTTPException(status_code=404, detail="Favicon not found")
+
+
 dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 if dist.exists():
     app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
